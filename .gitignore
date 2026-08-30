@@ -1,0 +1,29 @@
+# Dependencies (root, server, and client — a bare pattern matches at any depth)
+node_modules/
+
+# Environment variables — real credentials (MongoDB URI, JWT secret, etc.),
+# never commit. Covers server/.env and client/.env too.
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Vite cache
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
