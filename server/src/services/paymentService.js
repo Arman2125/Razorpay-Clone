@@ -18,8 +18,15 @@ const VALID_TRANSITIONS = {
  * Structured, merchant-scoped payment lookup shared by /payments/search
  * and reminder creation-by-criteria. Never accepts a merchantId from the
  * criteria object — callers must always pass the authenticated merchantId.
+ *
+ * minAmount/maxAmount/paymentMethod/sortBy/sortOrder are additive — every
+ * existing caller (reminder-by-criteria, the original /payments/search
+ * shape) keeps working unchanged since these are simply left undefined.
  */
-export async function findPayments(merchantId, { customerName, customerId, amount, status, dateFrom, dateTo } = {}) {
+export async function findPayments(
+  merchantId,
+  { customerName, customerId, amount, minAmount, maxAmount, status, paymentMethod, dateFrom, dateTo, sortBy, sortOrder } = {}
+) {
   const filter = { merchantId };
 
   if (customerId) {
@@ -32,15 +39,27 @@ export async function findPayments(merchantId, { customerName, customerId, amoun
     filter.customerId = { $in: matches.map((c) => c.customerId) };
   }
 
-  if (amount !== undefined && amount !== null && amount !== '') filter.amount = Number(amount);
+  if (amount !== undefined && amount !== null && amount !== '') {
+    filter.amount = Number(amount);
+  } else if (minAmount !== undefined || maxAmount !== undefined) {
+    const range = {};
+    if (minAmount !== undefined && minAmount !== null && minAmount !== '') range.$gte = Number(minAmount);
+    if (maxAmount !== undefined && maxAmount !== null && maxAmount !== '') range.$lte = Number(maxAmount);
+    if (Object.keys(range).length) filter.amount = range;
+  }
+
   if (status) filter.status = status;
+  if (paymentMethod) filter.paymentMethod = paymentMethod;
 
   const dateRange = {};
   if (dateFrom) dateRange.$gte = new Date(dateFrom);
   if (dateTo) dateRange.$lte = new Date(dateTo);
   if (Object.keys(dateRange).length) filter.createdAt = dateRange;
 
-  return Payment.find(filter).sort({ createdAt: -1 }).lean();
+  const sortField = ['amount', 'createdAt', 'dueDate'].includes(sortBy) ? sortBy : 'createdAt';
+  const sortDir = sortOrder === 'asc' ? 1 : -1;
+
+  return Payment.find(filter).sort({ [sortField]: sortDir }).lean();
 }
 
 export async function getPaymentsSummary(merchantId) {

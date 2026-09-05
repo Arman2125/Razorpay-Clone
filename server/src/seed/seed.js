@@ -9,6 +9,10 @@ import Payment from '../models/Payment.js';
 import Reminder from '../models/Reminder.js';
 import Settlement from '../models/Settlement.js';
 import Activity from '../models/Activity.js';
+import Refund from '../models/Refund.js';
+import Order from '../models/Order.js';
+import Invoice from '../models/Invoice.js';
+import Subscription from '../models/Subscription.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(Date.now() - n * DAY);
@@ -25,6 +29,10 @@ async function run() {
     Reminder.deleteMany({}),
     Settlement.deleteMany({}),
     Activity.deleteMany({}),
+    Refund.deleteMany({}),
+    Order.deleteMany({}),
+    Invoice.deleteMany({}),
+    Subscription.deleteMany({}),
   ]);
 
   // ---------- Merchants ----------
@@ -303,6 +311,156 @@ async function run() {
 
   await Activity.insertMany(activities);
   console.log(`Activity records created: ${activities.length}`);
+
+  // ---------- Refunds (additive demo data) ----------
+  const refundedInv0987 = paymentByDescription.get('Invoice #INV-0987'); // Rahul A, paid 12000
+  const refundedInv0965 = paymentByDescription.get('Invoice #INV-0965'); // Priya A, paid 22000
+
+  const refundDocs = await Refund.insertMany([
+    {
+      refundId: generateId('refund'),
+      merchantId: refundedInv0987.merchantId,
+      paymentId: refundedInv0987.paymentId,
+      customerId: refundedInv0987.customerId,
+      amount: 4000,
+      currency: 'INR',
+      status: 'refunded',
+      reason: 'Partial return of goods',
+      createdAt: daysAgo(10),
+    },
+    {
+      refundId: generateId('refund'),
+      merchantId: refundedInv0965.merchantId,
+      paymentId: refundedInv0965.paymentId,
+      customerId: refundedInv0965.customerId,
+      amount: 22000,
+      currency: 'INR',
+      status: 'refunded',
+      reason: 'Order cancelled by customer',
+      createdAt: daysAgo(20),
+    },
+  ]);
+  console.log(`Refunds created: ${refundDocs.length}`);
+
+  // ---------- Orders (additive demo data) ----------
+  const orderDocs = await Order.insertMany([
+    {
+      orderId: generateId('order'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.nehaA.customerId,
+      amount: 15000,
+      currency: 'INR',
+      status: 'created',
+      receipt: 'ORD-A-1001',
+      createdAt: daysAgo(3),
+    },
+    {
+      orderId: generateId('order'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.sunitaA.customerId,
+      amount: 8000,
+      currency: 'INR',
+      status: 'paid',
+      receipt: 'ORD-A-1002',
+      createdAt: daysAgo(12),
+    },
+    {
+      orderId: generateId('order'),
+      merchantId: merchantB.merchantId,
+      customerId: cust.kavitaB.customerId,
+      amount: 20000,
+      currency: 'INR',
+      status: 'cancelled',
+      receipt: 'ORD-B-2001',
+      createdAt: daysAgo(6),
+    },
+  ]);
+  console.log(`Orders created: ${orderDocs.length}`);
+
+  // ---------- Invoices (additive demo data) ----------
+  const invoiceDocs = await Invoice.insertMany([
+    {
+      invoiceId: generateId('invoice'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.amitA.customerId,
+      amount: 30000,
+      currency: 'INR',
+      status: 'draft',
+      description: 'Draft invoice awaiting review',
+      createdAt: daysAgo(1),
+    },
+    {
+      invoiceId: generateId('invoice'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.deepakA.customerId,
+      amount: 10000,
+      currency: 'INR',
+      status: 'issued',
+      description: 'Consulting services — March',
+      dueDate: daysFromNow(10),
+      issuedAt: daysAgo(5),
+      createdAt: daysAgo(5),
+    },
+    {
+      invoiceId: generateId('invoice'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.nehaA.customerId,
+      amount: 5000,
+      currency: 'INR',
+      status: 'issued',
+      description: 'Overdue demo invoice',
+      dueDate: daysAgo(5),
+      issuedAt: daysAgo(20),
+      createdAt: daysAgo(20),
+    },
+    {
+      invoiceId: generateId('invoice'),
+      merchantId: merchantB.merchantId,
+      customerId: cust.rameshB.customerId,
+      amount: 12000,
+      currency: 'INR',
+      status: 'paid',
+      description: 'Paid demo invoice',
+      dueDate: daysAgo(15),
+      issuedAt: daysAgo(25),
+      paidAt: daysAgo(16),
+      createdAt: daysAgo(25),
+    },
+  ]);
+  console.log(`Invoices created: ${invoiceDocs.length}`);
+
+  // ---------- Subscriptions (additive demo data) ----------
+  const subscriptionDocs = await Subscription.insertMany([
+    {
+      subscriptionId: generateId('subscription'),
+      merchantId: merchantA.merchantId,
+      customerId: cust.priyaA.customerId,
+      planId: 'plan_monthly_basic',
+      amount: 2000,
+      currency: 'INR',
+      interval: 'month',
+      intervalCount: 1,
+      status: 'active',
+      startAt: daysAgo(30),
+      nextBillingAt: daysFromNow(5),
+      createdAt: daysAgo(30),
+    },
+    {
+      subscriptionId: generateId('subscription'),
+      merchantId: merchantB.merchantId,
+      customerId: cust.anjaliB.customerId,
+      planId: 'plan_weekly_lite',
+      amount: 500,
+      currency: 'INR',
+      interval: 'week',
+      intervalCount: 1,
+      status: 'paused',
+      startAt: daysAgo(21),
+      nextBillingAt: daysFromNow(2),
+      createdAt: daysAgo(21),
+    },
+  ]);
+  console.log(`Subscriptions created: ${subscriptionDocs.length}`);
 
   console.log('\nSeed complete.\n');
   console.log('Demo merchant login phone numbers:');

@@ -7,7 +7,17 @@ const activitySchema = new mongoose.Schema(
     action: { type: String, required: true, index: true },
     entityType: {
       type: String,
-      enum: ['payment', 'customer', 'reminder', 'settlement', 'paymentLink'],
+      enum: [
+        'payment',
+        'customer',
+        'reminder',
+        'settlement',
+        'paymentLink',
+        'refund',
+        'order',
+        'invoice',
+        'subscription',
+      ],
       required: true,
     },
     entityId: { type: String, required: true },

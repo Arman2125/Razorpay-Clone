@@ -18,6 +18,10 @@ import Settlements from './pages/Settlements';
 import Reminders from './pages/Reminders';
 import Analytics from './pages/Analytics';
 import Activity from './pages/Activity';
+import Refunds from './pages/Refunds';
+import Orders from './pages/Orders';
+import Invoices from './pages/Invoices';
+import Subscriptions from './pages/Subscriptions';
 
 export default function App() {
   return (
@@ -45,6 +49,10 @@ export default function App() {
               <Route path="pending" element={<PendingCollections />} />
               <Route path="settlements" element={<Settlements />} />
               <Route path="reminders" element={<Reminders />} />
+              <Route path="refunds" element={<Refunds />} />
+              <Route path="orders" element={<Orders />} />
+              <Route path="invoices" element={<Invoices />} />
+              <Route path="subscriptions" element={<Subscriptions />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="activity" element={<Activity />} />
             </Route>

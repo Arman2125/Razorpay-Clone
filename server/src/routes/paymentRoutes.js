@@ -10,6 +10,8 @@ import {
   getPaymentStatus,
   searchPayments,
   updatePaymentStatusHandler,
+  listPaymentRefunds,
+  getPaymentRefundable,
 } from '../controllers/paymentController.js';
 
 const router = Router();
@@ -25,5 +27,7 @@ router.get('/', listPayments);
 router.get('/:paymentId', getPaymentById);
 router.get('/:paymentId/status', getPaymentStatus);
 router.patch('/:paymentId/status', updatePaymentStatusHandler);
+router.get('/:paymentId/refunds', listPaymentRefunds);
+router.get('/:paymentId/refundable', getPaymentRefundable);
 
 export default router;

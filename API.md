@@ -77,10 +77,18 @@ Structured search — the primary tool for **ambiguity detection**. Returns *eve
 
 **Request** (all fields optional, combined with AND)
 ```json
-{ "customerName": "Rahul", "customerId": "cus_...", "amount": 25000, "status": "pending", "dateFrom": "2026-08-01", "dateTo": "2026-08-31" }
+{
+  "customerName": "Rahul", "customerId": "cus_...",
+  "amount": 25000, "minAmount": 5000, "maxAmount": 50000,
+  "status": "pending", "paymentMethod": "UPI",
+  "dateFrom": "2026-08-01", "dateTo": "2026-08-31",
+  "sortBy": "amount", "sortOrder": "asc",
+  "page": 1, "limit": 20
+}
 ```
+`amount` (exact) takes priority over `minAmount`/`maxAmount` (range) if both are given. `sortBy` is one of `amount|createdAt|dueDate` (default `createdAt`); `sortOrder` is `asc|desc` (default `desc`).
 
-**Response** `200`: `{ items: [...], count: N }`
+**Response** `200`: `{ items: [...], count: N }` — unchanged from the original shape when `page`/`limit` are omitted. Passing either one **additively** switches to a paginated response: `{ items: [...] (this page only), count: N (total matches), page, limit, total }`.
 
 ### `GET /payments/:paymentId`
 A single payment (merchant-scoped). Also writes a `PAYMENT_VIEWED` activity record.
@@ -271,10 +279,142 @@ If `customerName` is ambiguous, Sugam receives `409 AMBIGUOUS_CUSTOMER` with `ca
 
 ---
 
+## Refunds
+
+A Refund is a **separate ledger**, never a mutation of `Payment.status`. A payment that reaches `paid` stays `paid` forever — refunding it never flips it back to `pending`/`failed`, and never invents a `refunded` payment status. How much of a payment remains refundable is always computed on demand from the Refund collection:
+
+```
+refundableAmount = payment.amount - sum(amount of "refunded" Refunds for that payment)
+```
+
+This demo has no real payment gateway, so any refund that passes validation always simulates instant success — same "the state transition is real, the gateway is not" contract as Payment Links.
+
+### `POST /refunds`
+**Auth required.** `{ "paymentId": "pay_...", "amount": 3000, "reason": "Customer request" }`
+
+- The payment must belong to the authenticated merchant (`404 PAYMENT_NOT_FOUND` otherwise) and must have `status: "paid"` (`400 PAYMENT_NOT_PAID` otherwise — refunds never touch pending/failed/expired payments).
+- `amount` must be a positive number (`400 INVALID_AMOUNT` for zero, negative, missing, or non-numeric).
+- `amount` must not exceed the current refundable balance (`400 REFUND_EXCEEDS_BALANCE`).
+- **Idempotency**: `Idempotency-Key` header (or `idempotencyKey` in the body) — a retried request returns the original refund (`200`), never a duplicate.
+
+**Response** `201` (or `200` if deduped): the refund document (`refundId`, `status: "refunded"`, `amount`, `reason`, ...).
+
+### `GET /refunds`
+**Auth required.** Query params: `status`, `paymentId`, `customerId`, `page`, `limit` (pagination is opt-in — omit both for the full unpaged list).
+
+### `GET /refunds/:refundId`
+**Auth required, merchant-scoped.**
+
+### `GET /payments/:paymentId/refunds`
+**Auth required, merchant-scoped.** Full refund history for one payment.
+
+### `GET /payments/:paymentId/refundable`
+**Auth required, merchant-scoped.** `{ paymentId, paymentAmount, paymentStatus, refundedAmount, refundableAmount }` — the authoritative, server-computed balance. Never trust a frontend-computed refundable amount.
+
+### Activity actions
+`REFUND_CREATED` — filterable via `GET /activity?action=REFUND_CREATED`.
+
+---
+
+## Orders
+
+An Order is a receivable a merchant intends to collect — distinct from a `Payment` (an actual transaction record), same separation Razorpay itself uses. Marking an order `"paid"` is a fulfillment flag; it never fabricates money movement on its own. An existing, already-paid `Payment` can optionally be linked to it (`order.paymentId`) as a traceability pointer.
+
+```
+created -> attempted -> paid
+created -> attempted -> cancelled
+created -> cancelled
+```
+
+### `POST /orders`
+**Auth required.** `{ "customerId" | "customerName", "amount", "currency"?, "receipt"?, "notes"? }` — same customer resolution rules as Payment Links (`404 CUSTOMER_NOT_FOUND` / `409 AMBIGUOUS_CUSTOMER`). Supports `Idempotency-Key`.
+
+### `GET /orders`
+**Auth required.** Query params: `status`, `customerId`, `page`, `limit`.
+
+### `GET /orders/:orderId`
+**Auth required, merchant-scoped.**
+
+### `PATCH /orders/:orderId/status`
+**Auth required, merchant-scoped.** `{ "status": "attempted" | "paid" | "cancelled", "paymentId"? }`. `paymentId` (optional, only meaningful when marking `"paid"`) must reference an already-`"paid"` Payment belonging to the same merchant and customer — `400 PAYMENT_NOT_PAID` / `404` otherwise.
+
+### Activity actions
+`ORDER_CREATED`, `ORDER_UPDATED`.
+
+---
+
+## Invoices
+
+An Invoice is a billing document with its own lifecycle, additive to (never a rename of) Payment or Order:
+
+```
+draft -> issued -> paid | cancelled
+issued -> overdue (lazy, once dueDate passes — same pattern as Payment Link expiry)
+overdue -> paid | cancelled
+```
+
+Only a `draft` invoice can be edited (`PATCH /invoices/:id`); editing after issuance is rejected (`400 INVOICE_NOT_DRAFT`).
+
+### `POST /invoices`
+**Auth required.** `{ "customerId" | "customerName", "amount", "currency"?, "orderId"?, "description"?, "dueDate"? }`. Creates a `draft`. Supports `Idempotency-Key`.
+
+### `GET /invoices`
+**Auth required.** Query params: `status` (querying `"issued"` or `"overdue"` first lazily flips any invoice whose `dueDate` has passed), `customerId`, `page`, `limit`.
+
+### `GET /invoices/:invoiceId`
+**Auth required, merchant-scoped.** Also lazily flips to `overdue` if applicable before returning.
+
+### `PATCH /invoices/:invoiceId`
+**Auth required, merchant-scoped, draft only.** `{ "amount"?, "description"?, "dueDate"? }`.
+
+### `PATCH /invoices/:invoiceId/status`
+**Auth required, merchant-scoped.** `{ "status": "issued" | "paid" | "cancelled", "paymentId"? }`. Sets `issuedAt`/`paidAt` accordingly. `paymentId` is optional and validated the same way as Orders.
+
+### Activity actions
+`INVOICE_CREATED`, `INVOICE_ISSUED`, `INVOICE_PAID`, `INVOICE_CANCELLED`, `INVOICE_OVERDUE`.
+
+---
+
+## Subscriptions
+
+Recurring billing schedule + lifecycle, with **no in-process cron or timer**. `nextBillingAt` only ever advances through the deterministic, idempotent `processDueSubscriptions` step — called explicitly via `POST /subscriptions/process-due` — so a server restart can never cause a duplicate or skipped charge. In a production deployment, an external scheduler (a real cron job, a queue consumer) would call that same endpoint on a timer; this demo does not include one, by design (see the codebase-wide rule against fragile in-process schedulers).
+
+```
+created -> active (lazily, once startAt arrives) -> paused -> active
+active/paused -> cancelled (immediately, or scheduled for the end of the current cycle)
+```
+
+### `POST /subscriptions`
+**Auth required.** `{ "customerId" | "customerName", "amount", "interval": "day"|"week"|"month"|"year", "intervalCount"?, "planId"?, "startAt"? }`. A `startAt` in the future leaves the subscription `"created"`; omitted/past/now activates it immediately. Supports `Idempotency-Key`.
+
+### `GET /subscriptions`
+**Auth required.** Query params: `status`, `customerId`, `page`, `limit`.
+
+### `GET /subscriptions/:subscriptionId`
+**Auth required, merchant-scoped.**
+
+### `PATCH /subscriptions/:subscriptionId/status`
+**Auth required, merchant-scoped.** `{ "status": "active" | "paused" | "cancelled", "atCycleEnd"? }`.
+- `"paused"`: only from `active`. Billing stops; `nextBillingAt` is frozen.
+- `"active"` (resume): only from `paused`. If the frozen `nextBillingAt` is now in the past, it is reset to "now" — resuming **never** bills for cycles missed while paused, preventing any backlog/duplicate charge.
+- `"cancelled"`: immediate by default (`cancelAt: now`), or pass `atCycleEnd: true` to keep billing normally until the current cycle's `nextBillingAt`, then stop without billing again.
+
+### `POST /subscriptions/process-due`
+**Auth required, merchant-scoped.** Deterministically bills every subscription for this merchant whose `nextBillingAt <= now`: creates a real `Payment` (`status: paid`, `paymentMethod: UPI`) for each, advances `nextBillingAt` by `interval`/`intervalCount`, and stops any subscription whose scheduled `atCycleEnd` cancellation has arrived. Each cycle is claimed with an atomic, single-document `findOneAndUpdate` keyed on the exact `nextBillingAt` being advanced, so calling this endpoint concurrently or repeatedly can never double-bill the same cycle. Safe to call any number of times.
+
+**Response** `200`: `{ processed: N, results: [{ subscriptionId, billed, paymentId?, nextBillingAt? }] }`.
+
+### Activity actions
+`SUBSCRIPTION_CREATED`, `SUBSCRIPTION_CANCELLED`, `SUBSCRIPTION_BILLED`.
+
+---
+
 ## Settlements
 
 ### `GET /settlements`
-`{ items: [...], summary: { totalSettled, pendingSettlement, latestSettlement } }`
+`{ items: [...], summary: { totalSettled, pendingSettlement, failedSettlement, latestSettlement } }`
+
+**Query params** (additive, all optional): `status` (`processed|pending|failed`), `from`, `to` (ISO dates, filter `settlementDate`). The `summary` block always reflects the merchant's full settlement history, never just the filtered page, so it can't drift when a filter is applied.
 
 ### `GET /settlements/:settlementId`
 Single settlement. Writes a `SETTLEMENT_VIEWED` activity record.
@@ -286,7 +426,7 @@ Single settlement. Writes a `SETTLEMENT_VIEWED` activity record.
 ### `GET /activity`
 **Query params**: `action`, `entityType`, `from`, `to`, `page`, `limit`.
 
-Every state-changing operation in this API writes here: `REMINDER_SENT`, `PAYMENT_UPDATED`, `PAYMENT_VIEWED`, `CUSTOMER_CREATED`, `CUSTOMER_UPDATED`, `SETTLEMENT_VIEWED`. This is the same log a future Sugam action will append to — a merchant asking Sugam to send a reminder produces the identical activity record a dashboard click would.
+Every state-changing operation in this API writes here: `REMINDER_SENT`, `PAYMENT_UPDATED`, `PAYMENT_VIEWED`, `CUSTOMER_CREATED`, `CUSTOMER_UPDATED`, `SETTLEMENT_VIEWED`, and now `REFUND_CREATED`, `ORDER_CREATED`, `ORDER_UPDATED`, `INVOICE_CREATED`, `INVOICE_ISSUED`, `INVOICE_PAID`, `INVOICE_CANCELLED`, `INVOICE_OVERDUE`, `SUBSCRIPTION_CREATED`, `SUBSCRIPTION_CANCELLED`, `SUBSCRIPTION_BILLED`. This is the same log a future Sugam action will append to — a merchant asking Sugam to send a reminder produces the identical activity record a dashboard click would.
 
 ---
 
@@ -294,6 +434,22 @@ Every state-changing operation in this API writes here: `REMINDER_SENT`, `PAYMEN
 
 ### `GET /analytics/summary`
 Dashboard-oriented aggregation: overview totals, status breakdown, payment-method breakdown, volume-over-time series. Distinct from `/payments/summary`, which is a compact single-object total meant for a quick spoken/chat answer rather than chart rendering.
+
+Additively extended with per-domain totals, computed server-side via MongoDB aggregation (never cached, never hardcoded), alongside the original fields (which are unchanged):
+
+```json
+{
+  "overview": { "...": "unchanged" },
+  "statusBreakdown": ["..."],
+  "methodBreakdown": ["..."],
+  "volumeOverTime": ["..."],
+  "refunds": { "totalRefunded": 0, "refundCount": 0, "refundableVolume": 0 },
+  "orders": { "totalOrders": 0, "totalOrderAmount": 0, "paidOrders": 0, "cancelledOrders": 0 },
+  "invoices": { "totalInvoices": 0, "totalInvoiceAmount": 0, "paidAmount": 0, "outstandingAmount": 0, "overdueAmount": 0 },
+  "paymentLinks": { "totalLinks": 0, "paidLinks": 0, "conversionRate": 0 },
+  "settlements": { "totalSettled": 0, "pendingSettlement": 0 }
+}
+```
 
 ---
 
@@ -304,3 +460,6 @@ Dashboard-oriented aggregation: overview totals, status breakdown, payment-metho
 - A cross-merchant access attempt returns `404`, not `403` — it doesn't confirm the resource exists under another merchant.
 - Ambiguity is never resolved by picking the first/most-recent/cheapest match — `AMBIGUOUS_PAYMENT` / `AMBIGUOUS_CUSTOMER` is returned with full candidate data instead.
 - **One deliberate exception**: `POST /payment-links/:id/pay` and `GET /pay/:id` carry no merchant auth at all, by design — a payer is never a merchant. Their security boundary is knowledge of the `paymentLinkId`, matching real payment-link products. Every *other* payment-link route (create/list/view/cancel) is fully merchant-scoped and `404`s for a non-owning merchant, same as everywhere else in this API.
+- Refunds, Orders, Invoices, and Subscriptions follow the exact same rules: every route is `requireAuth`-protected, every query is scoped by `merchantId` from the JWT, and no route on any of these four resources is public. Financial math (`refundableAmount`, invoice `outstandingAmount`, subscription billing dates) is always computed server-side from the database — a client-supplied number is never trusted.
+- A successful refund never mutates the underlying `Payment.status` — `paid` stays `paid` — and `createRefund` rejects any amount exceeding `payment.amount - sum(previous "refunded" amounts)`, computed fresh on every call.
+- Money-moving/record-creating writes (Refunds, Orders, Invoices, Subscriptions, same as Payment Links/Reminders before them) support an `Idempotency-Key` header so a retried request can never create a duplicate record.

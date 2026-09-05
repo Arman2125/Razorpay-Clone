@@ -59,14 +59,19 @@ mini-razorpay/
 │       └── utils/       formatting helpers
 ├── server/            Express API
 │   └── src/
+│       ├── app.js       Express app wiring (routes/middleware) — imported by server.js and by tests
 │       ├── config/      db.js (Mongoose connection)
-│       ├── models/      Merchant, Customer, Payment, Reminder, Settlement, Activity
+│       ├── models/      Merchant, Customer, Payment, Reminder, Settlement, Activity,
+│       │                Refund, Order, Invoice, Subscription
 │       ├── controllers/ one per resource
 │       ├── routes/      one per resource, mounted under /api
-│       ├── services/    priorityService, reminderService, analyticsService, activityService
+│       ├── services/    priorityService, reminderService, analyticsService, activityService,
+│       │                customerResolution, refundService, orderService, invoiceService,
+│       │                subscriptionService
 │       ├── middleware/  auth.js (JWT), errorHandler.js
 │       ├── utils/       idGenerator.js, apiResponse.js
 │       └── seed/        seed.js
+├── server/test/       node:test + supertest integration tests (npm test, from server/)
 ├── .env.example
 └── README.md
 ```
@@ -103,7 +108,7 @@ npm install
 npm run seed
 ```
 
-This creates 2 merchants, 13 customers, 32 payments, 6 reminders, 6 settlements, and 25 activity records — including a **deliberate ambiguity case** (Merchant A's "Rahul Sharma" has two pending ₹25,000 payments on different due dates, one left without a reminder for the live demo), a **deliberate isolation case** (Merchant B also has a "Rahul Sharma", with a paid ₹25,000 payment, that must never be visible to Merchant A), and a **deliberate customer-name-collision case** (two "Anita Kumar" customers under Merchant A, for testing `AMBIGUOUS_CUSTOMER` on payment link creation). Payment Links start empty — they're created live through the demo.
+This creates 3 merchants, 13 customers, 32 payments, 6 reminders, 6 settlements, 25 activity records, 2 refunds, 3 orders, 4 invoices, and 2 subscriptions — including a **deliberate ambiguity case** (Merchant A's "Rahul Sharma" has two pending ₹25,000 payments on different due dates, one left without a reminder for the live demo), a **deliberate isolation case** (Merchant B also has a "Rahul Sharma", with a paid ₹25,000 payment, that must never be visible to Merchant A), and a **deliberate customer-name-collision case** (two "Anita Kumar" customers under Merchant A, for testing `AMBIGUOUS_CUSTOMER` on payment link creation). Payment Links start empty — they're created live through the demo.
 
 Re-running `npm run seed` wipes and recreates all data — safe to run any time to reset to a clean demo state.
 
@@ -153,26 +158,46 @@ All routes require `Authorization: Bearer <token>` **except**: `POST /api/auth/l
 
 **Payment Links** — `POST /api/payment-links` (by `customerId` or `customerName` — `409 AMBIGUOUS_CUSTOMER` if the name matches more than one customer), `GET /api/payment-links`, `GET /api/payment-links/:id`, `PATCH /api/payment-links/:id/status` (cancel/expire only), `POST /api/payment-links/:id/pay` (public), `GET /pay/:id` (public HTML page). A real `Payment` record is created the moment a link is paid.
 
+**Refunds** — `POST /api/refunds`, `GET /api/refunds`, `GET /api/refunds/:id`, `GET /api/payments/:id/refunds`, `GET /api/payments/:id/refundable`. A separate ledger against a `Payment` — refunding never changes `Payment.status`; the refundable balance is always computed server-side from the ledger.
+
+**Orders** — `POST /api/orders`, `GET /api/orders`, `GET /api/orders/:id`, `PATCH /api/orders/:id/status` (`created -> attempted -> paid`, or `-> cancelled`).
+
+**Invoices** — `POST /api/invoices`, `GET /api/invoices`, `GET /api/invoices/:id`, `PATCH /api/invoices/:id` (draft only), `PATCH /api/invoices/:id/status` (`draft -> issued -> paid/cancelled`; lazily flips to `overdue` past `dueDate`).
+
+**Subscriptions** — `POST /api/subscriptions`, `GET /api/subscriptions`, `GET /api/subscriptions/:id`, `PATCH /api/subscriptions/:id/status` (`active`/`paused`/`cancelled`), `POST /api/subscriptions/process-due` (deterministic, idempotent billing-cycle processor — no in-process cron; see API.md).
+
 **Settlements**
-- `GET /api/settlements`
+- `GET /api/settlements` — filters: `status`, `from`, `to`
 - `GET /api/settlements/:settlementId`
 
 **Activity**
 - `GET /api/activity` — filters: `action`, `entityType`, `from`, `to`, `page`, `limit`
 
 **Analytics**
-- `GET /api/analytics/summary` — overview totals, status/method breakdown, volume-over-time series
+- `GET /api/analytics/summary` — overview totals, status/method breakdown, volume-over-time series, plus refund/order/invoice/payment-link/settlement totals
 
 All responses use a consistent envelope: `{ success: true, data }` or `{ success: false, error: { code, message } }`.
 
-## 12. Security notes
+## 12. Automated tests
+
+The backend has an integration test suite (Node's built-in test runner + `supertest`) covering auth, merchant isolation, payments, payment links, refunds, orders, invoices, subscriptions, settlements, and analytics.
+
+```bash
+cd server
+npm test
+```
+
+Tests run against a **separate database** (`mini_razorpay_test`, on the same cluster as `MONGODB_URI`) — never against the real seeded/demo `mini_razorpay` database — and each test creates its own merchant/customer fixtures, so the suite is safe to re-run repeatedly without any manual cleanup.
+
+## 13. Security notes
 
 - `merchantId` is never accepted from the request body/query for authorization — it always comes from `req.user.merchantId`, set by the `requireAuth` middleware after verifying the JWT.
 - Every merchant-owned Mongoose query filters by `merchantId` directly, not as a post-fetch check.
 - A cross-merchant access attempt returns `404`, not `403`, so it doesn't confirm the resource exists under another merchant.
-- Reminder creation is idempotent via both a client-supplied `Idempotency-Key` and a same-payment/24h duplicate check.
+- Reminder creation is idempotent via both a client-supplied `Idempotency-Key` and a same-payment/24h duplicate check. Refunds, Orders, Invoices, and Subscriptions support the same `Idempotency-Key` pattern for their creation endpoints.
+- Refunds are tracked in a ledger separate from `Payment.status`; a payment's refundable balance is always recomputed server-side, and an over-refund is rejected deterministically.
 
-## 13. Future: Sugam + MCP integration
+## 14. Future: Sugam + MCP integration
 
 This repo intentionally stops at the REST API layer. The next build, **Razorpay Sugam**, will add:
 

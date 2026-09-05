@@ -10,6 +10,10 @@ const NAV = [
   { to: '/pending', label: 'Pending Collections' },
   { to: '/settlements', label: 'Settlements' },
   { to: '/reminders', label: 'Reminders' },
+  { to: '/refunds', label: 'Refunds' },
+  { to: '/orders', label: 'Orders' },
+  { to: '/invoices', label: 'Invoices' },
+  { to: '/subscriptions', label: 'Subscriptions' },
   { to: '/analytics', label: 'Analytics' },
   { to: '/activity', label: 'Activity' },
 ];

@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "seed": "node src/seed/seed.js"
+    "seed": "node src/seed/seed.js",
+    "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -16,5 +17,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.0",
     "nanoid": "^3.3.7"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
   }
 }

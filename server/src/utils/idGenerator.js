@@ -11,6 +11,10 @@ const PREFIXES = {
   settlement: 'stl',
   activity: 'act',
   paymentLink: 'plink',
+  refund: 'ref',
+  order: 'order',
+  invoice: 'inv',
+  subscription: 'sub',
 };
 
 export function generateId(type) {

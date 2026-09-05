@@ -4,6 +4,7 @@ import { success, Errors } from '../utils/apiResponse.js';
 import { calculatePriorityForPending } from '../services/priorityService.js';
 import { logActivity } from '../services/activityService.js';
 import * as paymentService from '../services/paymentService.js';
+import * as refundService from '../services/refundService.js';
 
 async function attachCustomers(merchantId, payments) {
   const customerIds = [...new Set(payments.map((p) => p.customerId))];
@@ -179,19 +180,74 @@ export async function getPaymentStatus(req, res, next) {
 export async function searchPayments(req, res, next) {
   try {
     const merchantId = req.user.merchantId;
-    const { customerName, customerId, amount, status, dateFrom, dateTo } = req.body;
+    const {
+      customerName,
+      customerId,
+      amount,
+      minAmount,
+      maxAmount,
+      status,
+      paymentMethod,
+      dateFrom,
+      dateTo,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    } = req.body;
 
     const payments = await paymentService.findPayments(merchantId, {
       customerName,
       customerId,
       amount,
+      minAmount,
+      maxAmount,
       status,
+      paymentMethod,
       dateFrom,
       dateTo,
+      sortBy,
+      sortOrder,
     });
     const enriched = await attachCustomers(merchantId, payments);
 
-    return success(res, { items: enriched, count: enriched.length });
+    // Pagination is opt-in and additive: omitting page/limit preserves the
+    // original { items, count } response shape exactly, for every existing
+    // caller (Sugam's future search tool included).
+    if (page === undefined && limit === undefined) {
+      return success(res, { items: enriched, count: enriched.length });
+    }
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const start = (pageNum - 1) * limitNum;
+    const pageItems = enriched.slice(start, start + limitNum);
+
+    return success(res, { items: pageItems, count: enriched.length, page: pageNum, limit: limitNum, total: enriched.length });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Additive: refund history / refundable-balance lookups for a payment,
+// merchant-scoped exactly like every other payment route. See
+// services/refundService.js — refunds never mutate Payment.status.
+export async function listPaymentRefunds(req, res, next) {
+  try {
+    const refunds = await refundService.listRefundsForPayment(req.user.merchantId, req.params.paymentId);
+    return success(res, refunds);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getPaymentRefundable(req, res, next) {
+  try {
+    const result = await refundService.getRefundableAmount({
+      merchantId: req.user.merchantId,
+      paymentId: req.params.paymentId,
+    });
+    return success(res, result);
   } catch (err) {
     next(err);
   }
