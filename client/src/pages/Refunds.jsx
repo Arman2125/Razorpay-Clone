@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { listRefunds, createRefund, getRefundableAmount } from '../api/refunds';
 import { listPayments } from '../api/payments';
+import { listCustomers } from '../api/customers';
 import { useToast } from '../context/ToastContext';
 import StatusBadge from '../components/StatusBadge';
 import { LoadingState, ErrorState, EmptyState } from '../components/States';
@@ -10,7 +11,10 @@ import { formatCurrency, formatDateTime } from '../utils/format';
 export default function Refunds() {
   const { data: refunds, loading, error, reload } = useApi(() => listRefunds(), []);
   const { data: paidPayments } = useApi(() => listPayments({ status: 'paid', limit: 100 }), []);
+  const { data: customers } = useApi(() => listCustomers(), []);
   const { push } = useToast();
+
+  const customerNameById = Object.fromEntries((customers || []).map((c) => [c.customerId, c.name]));
 
   const [form, setForm] = useState({ paymentId: '', amount: '', reason: '' });
   const [refundable, setRefundable] = useState(null);
@@ -118,6 +122,7 @@ export default function Refunds() {
             <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Refund ID</th>
+                <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Payment</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Status</th>
@@ -129,6 +134,7 @@ export default function Refunds() {
               {refunds.items.map((r) => (
                 <tr key={r.refundId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.refundId}</td>
+                  <td className="px-4 py-3 text-slate-800">{customerNameById[r.customerId] || r.customerId}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{r.paymentId}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{formatCurrency(r.amount)}</td>
                   <td className="px-4 py-3">

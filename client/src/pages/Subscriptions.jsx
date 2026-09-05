@@ -14,6 +14,8 @@ export default function Subscriptions() {
   const { data: customers } = useApi(() => listCustomers(), []);
   const { push } = useToast();
 
+  const customerNameById = Object.fromEntries((customers || []).map((c) => [c.customerId, c.name]));
+
   const [form, setForm] = useState({ customerId: '', amount: '', interval: 'month' });
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
@@ -145,6 +147,7 @@ export default function Subscriptions() {
             <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Subscription ID</th>
+                <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Amount / Interval</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Next Billing</th>
@@ -155,6 +158,7 @@ export default function Subscriptions() {
               {subscriptions.items.map((s) => (
                 <tr key={s.subscriptionId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{s.subscriptionId}</td>
+                  <td className="px-4 py-3 text-slate-800">{customerNameById[s.customerId] || s.customerId}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">
                     {formatCurrency(s.amount)} / {s.interval}
                   </td>

@@ -20,6 +20,8 @@ export default function Invoices() {
   const { data: customers } = useApi(() => listCustomers(), []);
   const { push } = useToast();
 
+  const customerNameById = Object.fromEntries((customers || []).map((c) => [c.customerId, c.name]));
+
   const [form, setForm] = useState({ customerId: '', amount: '', description: '', dueDate: '' });
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
@@ -134,6 +136,7 @@ export default function Invoices() {
             <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Invoice ID</th>
+                <th className="px-4 py-3">Customer</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Due</th>
@@ -145,6 +148,7 @@ export default function Invoices() {
               {invoices.items.map((inv) => (
                 <tr key={inv.invoiceId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{inv.invoiceId}</td>
+                  <td className="px-4 py-3 text-slate-800">{customerNameById[inv.customerId] || inv.customerId}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{formatCurrency(inv.amount)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={inv.status} />
