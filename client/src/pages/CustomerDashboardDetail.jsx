@@ -203,7 +203,7 @@ export default function CustomerDashboardDetail() {
         </div>
       </div>
 
-      {/* Payment history
+      {/* Payment history */}
       <div>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">Payment History</h2>
         {paymentsLoading && <LoadingState label="Loading payments..." />}
@@ -266,7 +266,7 @@ export default function CustomerDashboardDetail() {
             </table>
           </div>
         )}
-      </div> */}
+      </div>
 
       {/* Reminder history */}
       <div>
