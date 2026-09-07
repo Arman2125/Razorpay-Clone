@@ -202,7 +202,7 @@ Tests run against a **separate database** (`mini_razorpay_test`, on the same clu
 This repo intentionally stops at the REST API layer. The next build, **Razorpay Sugam**, will add:
 
 ```
-Merchant (WhatsApp/voice) → Twilio → Sugam Agent (LLM) → MCP Server → these REST APIs
+Merchant (WhatsApp/voice) → Whatsapp Meta API → Sugam Agent (LLM) → MCP Server → these REST APIs
 ```
 
 Each endpoint above maps directly to a planned MCP tool (`search_payments`, `get_payment_status`, `get_pending_payments`, `calculate_collection_priority`, `send_payment_reminder`, `get_activity`, etc.). Sugam will never access MongoDB directly and will never supply its own `merchantId` — it authenticates as a merchant (via their WhatsApp-bound identity) exactly the way this dashboard authenticates via login, and the same server-side authorization rules apply unchanged.
